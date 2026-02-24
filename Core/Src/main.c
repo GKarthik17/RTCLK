@@ -29,10 +29,27 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef enum {
+    MODE_DISPLAY,
+    MODE_RESET,
+    MODE_ALARM
+}mode_t;
+
+typedef enum{
+  TIME_HOURS,
+  TIME_MINUTES,
+  TIME_SECONDS,
+  TIME_DATE,
+  TIME_MONTH,
+  TIME_YEAR,
+  TIME_WEEK
+} date_time_param_t;
+
 
 /* USER CODE END PTD */
 
@@ -53,9 +70,11 @@ I2C_HandleTypeDef hi2c2;
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
-// osMessageQueueId_t myQueueHandle;
-char buff1[20], buff2[20];
+
+char buff[20];
 DS3231_Time dateTime;
+
+mode_t mode = MODE_DISPLAY;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -66,23 +85,85 @@ static void MX_USART1_UART_Init(void);
 static void MX_I2C2_Init(void);
 /* USER CODE BEGIN PFP */
 
-void DisplayTime(DS3231_Time *dateTime)
+void Draw_celsius(void)
+{
+  for(int i = 24 ; i <=25 ; i++){
+    for(int j = 24 ; j <= 25 ; j++){
+      ssd1306_DrawPixel(i, j, White);
+    }
+  }
+}
+
+char *get_week_str(uint8_t day_of_week)
+{
+  static char week_str[4] = {0};
+  switch (day_of_week)
+  {
+  case 1:
+    snprintf(week_str, sizeof(week_str), "Sun");
+    break;
+  
+  case 2:
+    snprintf(week_str, sizeof(week_str), "Mon");
+    break;
+
+  case 3:
+    snprintf(week_str, sizeof(week_str), "Tue");
+    break;
+
+  case 4:
+    snprintf(week_str, sizeof(week_str), "Wed");
+    break;
+
+  case 5:
+    snprintf(week_str, sizeof(week_str), "Thr");
+    break;
+  
+  case 6:
+    snprintf(week_str, sizeof(week_str), "Fri");
+    break;
+
+  case 7:
+    snprintf(week_str, sizeof(week_str), "Sat");
+    break;
+
+  default:
+    return NULL;
+  }
+  return week_str;
+}
+
+
+void DisplayTimeandTemp(DS3231_Time *dateTime, float temp)
 {
   ssd1306_Fill(Black);
 
   /* ---- TIME ---- */
   ssd1306_SetCursor(0, 0);   // <<< IMPORTANT FIX
-  memset(buff1, 0, sizeof(buff1));
-  snprintf(buff1, sizeof(buff1), "%02d:%02d:%02d",
+  memset(buff, 0, sizeof(buff));
+  snprintf(buff, sizeof(buff), "%02d:%02d:%02d",
            dateTime->hours, dateTime->minutes, dateTime->seconds);
-  ssd1306_WriteString(buff1, Font_16x24, White);
+  ssd1306_WriteString(buff, Font_16x24, White);
+
+  /* ---- WEEK ---- */
+  ssd1306_SetCursor(0, 24);
+  memset(buff, 0, sizeof(buff));
+  snprintf(buff, sizeof(buff), "%s", get_week_str(dateTime->dayOfWeek));
+  ssd1306_WriteString(buff, Font_6x8, White);
 
   /* ---- DATE ---- */
-  ssd1306_SetCursor(36, 24);
-  memset(buff2, 0, sizeof(buff2));
-  snprintf(buff2, sizeof(buff2), "%02d-%02d-%04d",
+  ssd1306_SetCursor(28, 24);
+  memset(buff, 0, sizeof(buff));
+  snprintf(buff, sizeof(buff), "%02d-%02d-%04d",
            dateTime->day, dateTime->month, dateTime->year);
-  ssd1306_WriteString(buff2, Font_6x8, White);
+  ssd1306_WriteString(buff, Font_6x8, White);
+
+  /* ---- TEMP ---- */
+  ssd1306_SetCursor(96, 24);
+  memset(buff, 0, sizeof(buff));
+  snprintf(buff, sizeof(buff), "%.1f", temp);
+  ssd1306_WriteString(buff, Font_6x8, White);
+  Draw_celsius();
 
   ssd1306_UpdateScreen();
 }
@@ -102,7 +183,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+  float temp = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -135,9 +216,21 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  DS3231_GetTime(&dateTime);
-	  DisplayTime(&dateTime);
-	  HAL_Delay(1000);
+	  if(mode == MODE_DISPLAY)
+    {
+      DS3231_GetTime(&dateTime);
+      temp = DS3231_GetTemperature();
+      DisplayTimeandTemp(&dateTime, temp);
+      HAL_Delay(990);
+    }
+    else if( mode == MODE_RESET)
+    {
+
+    }
+    else if(mode == MODE_ALARM)
+    {
+
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -329,7 +422,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	if(GPIO_Pin == GPIO_PIN_13)
 	{
-
+    mode++;
+    if(mode == 3)
+      mode = MODE_DISPLAY;
 	}
 
 	if(GPIO_Pin == GPIO_PIN_14)

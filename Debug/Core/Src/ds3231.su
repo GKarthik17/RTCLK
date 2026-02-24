@@ -4,3 +4,5 @@
 ../Core/Src/ds3231.c:26:6:DS3231_SetTime	40	static
 ../Core/Src/ds3231.c:45:6:DS3231_GetTime	40	static
 ../Core/Src/ds3231.c:64:7:DS3231_GetTemperature	40	static
+../Core/Src/ds3231.c:77:19:DS3231_SetAlarm1	40	static
+../Core/Src/ds3231.c:106:6:DS3231_ClearAlarm1	40	static
