@@ -61,17 +61,27 @@ void DS3231_GetTime(DS3231_Time *t) {
 // --------------------------------------------------
 // Read internal temperature
 // --------------------------------------------------
-float DS3231_GetTemperature(void) {
+float DS3231_GetTemperature(void)
+{
     uint8_t tempData[2];
 
-    HAL_I2C_Mem_Read(ds3231_i2c, DS3231_ADDRESS,
-                     0x11, I2C_MEMADD_SIZE_8BIT,
-                     tempData, 2, 1000);
+    if(HAL_I2C_Mem_Read(ds3231_i2c,
+                        DS3231_ADDRESS,
+                        0x11,
+                        I2C_MEMADD_SIZE_8BIT,
+                        tempData,
+                        2,
+                        100) != HAL_OK)
+    {
+        return 0;
+    }
+
+    HAL_Delay(2);
 
     int8_t msb  = tempData[0];
     uint8_t lsb = tempData[1];
 
-    return msb + (lsb >> 6) * 0.25f;
+    return msb + ((lsb >> 6) * 0.25f);
 }
 
 HAL_StatusTypeDef DS3231_SetAlarm1(I2C_HandleTypeDef *hi2c,
@@ -82,9 +92,9 @@ HAL_StatusTypeDef DS3231_SetAlarm1(I2C_HandleTypeDef *hi2c,
     uint8_t data[4];
 
     /* Match seconds, minutes, hours — ignore day/date */
-    data[0] = DecToBCD(sec);        // A1M1 = 0
-    data[1] = DecToBCD(min);        // A1M2 = 0
-    data[2] = DecToBCD(hour);       // A1M3 = 0
+    data[0] = DEC2BCD(sec);        // A1M1 = 0
+    data[1] = DEC2BCD(min);        // A1M2 = 0
+    data[2] = DEC2BCD(hour);       // A1M3 = 0
     data[3] = 0x80;                 // A1M4 = 1 → ignore day/date
 
     /* Write alarm registers */

@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stdbool.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -47,8 +48,9 @@ typedef enum{
   TIME_DATE,
   TIME_MONTH,
   TIME_YEAR,
-  TIME_WEEK
-} date_time_param_t;
+  TIME_WEEK,
+  TIME_ON_OFF
+} date_time_param_t
 
 
 /* USER CODE END PTD */
@@ -72,9 +74,12 @@ UART_HandleTypeDef huart1;
 /* USER CODE BEGIN PV */
 
 char buff[20];
-DS3231_Time dateTime;
+DS3231_Time dateTime, reset_time;
 
-mode_t mode = MODE_DISPLAY;
+mode_t mode = TIME_DISPLAY;
+date_time_param_t reset_params = TIME_HOURS;
+bool turn_on = false;
+bool print_flag = false;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -84,14 +89,10 @@ static void MX_I2C1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_I2C2_Init(void);
 /* USER CODE BEGIN PFP */
-
-void Draw_celsius(void)
+int __io_putchar(int ch)
 {
-  for(int i = 24 ; i <=25 ; i++){
-    for(int j = 24 ; j <= 25 ; j++){
-      ssd1306_DrawPixel(i, j, White);
-    }
-  }
+    HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+    return ch;
 }
 
 char *get_week_str(uint8_t day_of_week)
@@ -116,7 +117,7 @@ char *get_week_str(uint8_t day_of_week)
     break;
 
   case 5:
-    snprintf(week_str, sizeof(week_str), "Thr");
+    snprintf(week_str, sizeof(week_str), "Thru");
     break;
   
   case 6:
@@ -134,36 +135,27 @@ char *get_week_str(uint8_t day_of_week)
 }
 
 
-void DisplayTimeandTemp(DS3231_Time *dateTime, float temp)
+void DisplayTime(DS3231_Time *dateTime)
 {
   ssd1306_Fill(Black);
 
   /* ---- TIME ---- */
   ssd1306_SetCursor(0, 0);   // <<< IMPORTANT FIX
   memset(buff, 0, sizeof(buff));
-  snprintf(buff, sizeof(buff), "%02d:%02d:%02d",
-           dateTime->hours, dateTime->minutes, dateTime->seconds);
+  snprintf(buff, sizeof(buff), "%02d:%02d:%02d", dateTime->hours, dateTime->minutes, dateTime->seconds);
   ssd1306_WriteString(buff, Font_16x24, White);
 
   /* ---- WEEK ---- */
-  ssd1306_SetCursor(0, 24);
+  ssd1306_SetCursor(12, 24);
   memset(buff, 0, sizeof(buff));
   snprintf(buff, sizeof(buff), "%s", get_week_str(dateTime->dayOfWeek));
   ssd1306_WriteString(buff, Font_6x8, White);
 
   /* ---- DATE ---- */
-  ssd1306_SetCursor(28, 24);
+  ssd1306_SetCursor(54, 24);
   memset(buff, 0, sizeof(buff));
-  snprintf(buff, sizeof(buff), "%02d-%02d-%04d",
-           dateTime->day, dateTime->month, dateTime->year);
+  snprintf(buff, sizeof(buff), "%02d-%02d-%04d", dateTime->day, dateTime->month, dateTime->year);
   ssd1306_WriteString(buff, Font_6x8, White);
-
-  /* ---- TEMP ---- */
-  ssd1306_SetCursor(96, 24);
-  memset(buff, 0, sizeof(buff));
-  snprintf(buff, sizeof(buff), "%.1f", temp);
-  ssd1306_WriteString(buff, Font_6x8, White);
-  Draw_celsius();
 
   ssd1306_UpdateScreen();
 }
@@ -183,7 +175,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-  float temp = 0;
+	
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -219,17 +211,18 @@ int main(void)
 	  if(mode == MODE_DISPLAY)
     {
       DS3231_GetTime(&dateTime);
-      temp = DS3231_GetTemperature();
-      DisplayTimeandTemp(&dateTime, temp);
+      DisplayTime(&dateTime);
       HAL_Delay(990);
     }
     else if( mode == MODE_RESET)
     {
-
+		if(print_flag){
+			printf("changed to %d/%d/%d %d:%d:%d and %s", reset_time.day, reset_time.month, reset_time.year, reset_time.hours, reset_time.minutes, reset_time.seconds, get_week_str(reset_time.dayOfWeek));
+			print_flag = false;
+		}
     }
     else if(mode == MODE_ALARM)
     {
-
     }
     /* USER CODE END WHILE */
 
@@ -404,8 +397,8 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pins : PB13 PB14 PB15 */
   GPIO_InitStruct.Pin = GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
@@ -422,44 +415,84 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	if(GPIO_Pin == GPIO_PIN_13)
 	{
-    mode++;
-    if(mode == 3)
-      mode = MODE_DISPLAY;
+    	mode++;
+		if(mode == MODE_RESET){
+			DS3231_GetTime(&reset_time);
+		}
+		if(mode == MODE_ALARM){
+			if(turn_on){
+				DS3231_SetTime(&reset_time);
+				turn_on = false;
+			}
+      					
+		}
+    	if(mode > MODE_ALARM){
+      		mode = MODE_DISPLAY;
+		}
 	}
 
 	if(GPIO_Pin == GPIO_PIN_14)
 	{
-
+		switch (mode){
+			case MODE_RESET:
+				reset_params++
+				if(reset_params == 8){
+					reset_params = TIME_HOURS;
+				}
+				break;
+		
+			default:
+				break;
+    	}
 	}
 
 	if(GPIO_Pin == GPIO_PIN_15)
 	{
+      if(mode == MODE_RESET)
+      {
+        switch(reset_params){
+        	case TIME_HOURS:
+            	reset_time.hours++;
+				if(reset_time.hours == 24) reset_time.hours=0;
+				break;
+			
+			case TIME_MINUTES:
+				reset_time.minutes++;
+				if(reset_time.minutes == 60) reset_time.minutes=0;
+				break;
 
+			case TIME_SECONDS:
+				reset_time.seconds++;
+				if(reset_time.seconds == 60) reset_time.seconds=0;
+				break;
+			
+			case TIME_DATE:
+				reset_time.day++;
+				if(reset_time.day == 32) reset_time.day=1;
+				break;
+
+			case TIME_MONTH:
+				reset_time.month++;
+				if(reset_time.month == 13) reset_time.month=1;
+				break;
+
+			case TIME_YEAR:
+				reset_time.year++;
+				break;
+
+			case TIME_WEEK:
+				reset_time.dayOfWeek++;
+				if(reset_time.dayOfWeek == 8) reset_time.dayOfWeek=1;
+				break;
+
+			case TIME_ON_OFF:
+				turn_on = !turn_on;
+				break;
+        }   
+      }
 	}
 }
 /* USER CODE END 4 */
-
-/**
-  * @brief  Period elapsed callback in non blocking mode
-  * @note   This function is called  when TIM4 interrupt took place, inside
-  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
-  * a global variable "uwTick" used as application time base.
-  * @param  htim : TIM handle
-  * @retval None
-  */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-  /* USER CODE BEGIN Callback 0 */
-
-  /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM4)
-  {
-    HAL_IncTick();
-  }
-  /* USER CODE BEGIN Callback 1 */
-
-  /* USER CODE END Callback 1 */
-}
 
 /**
   * @brief  This function is executed in case of error occurrence.
